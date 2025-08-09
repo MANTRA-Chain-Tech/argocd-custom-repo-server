@@ -2,17 +2,22 @@
 # Exit immediately if a command fails.
 set -e
 
-echo "--- Starting Kustomize CMP ---"
+echo "--- Running Kustomize Renderer Plugin ---"
 
-# Use envsubst to replace variables in the kustomization file
-# and create a temporary, processed version.
-envsubst < kustomization.yaml > kustomization.tmp.yaml
+KUSTOMIZATION_FILE=$(find . -maxdepth 1 -iname 'kustomization.y*ml' | head -n 1)
 
-echo "--- Generated temporary kustomization file ---"
-cat kustomization.tmp.yaml
-echo "------------------------------------------"
+if [ -z "$KUSTOMIZATION_FILE" ]; then
+  echo "Error: No kustomization.yaml or kustomization.yml found."
+  exit 1
+fi
 
-# Tell kustomize to build using the temporary file.
-kustomize build . -f kustomization.tmp.yaml
+echo "Found kustomization file: $KUSTOMIZATION_FILE"
 
-echo "--- Kustomize CMP Finished ---"
+cat "$KUSTOMIZATION_FILE" | envsubst > kustomization.tmp.yaml
+
+mv kustomization.tmp.yaml "$KUSTOMIZATION_FILE"
+
+echo "--- Building manifests from processed kustomization file ---"
+kustomize build .
+
+echo "--- Kustomize Renderer Plugin Finished ---"
