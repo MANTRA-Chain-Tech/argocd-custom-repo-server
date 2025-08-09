@@ -14,5 +14,3 @@ COPY render-kustomize.sh /usr/local/bin/render-kustomize.sh
 RUN chmod +x /usr/local/bin/render-kustomize.sh
 
 USER $ARGOCD_USER_ID
-
-ENTRYPOINT [ "/var/run/argocd/argocd-cmp-server" ]
