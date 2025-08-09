@@ -6,6 +6,6 @@ spec:
   version: v1.0
   discover:
     find:
-      command: ["sh", "-c", "find . -name kustomization.yaml"]
+      command: ["sh", "-c", "cd $ARGOCD_APP_PATH && find . -maxdepth 1 -name kustomization.yaml"]
   generate:
-    command: ["render-kustomize.sh"]
+    command: ["sh", "-c", "cd $ARGOCD_APP_PATH && render-kustomize.sh"]
