@@ -18,6 +18,6 @@ cat "$KUSTOMIZATION_FILE" | envsubst > kustomization.tmp.yaml
 mv kustomization.tmp.yaml "$KUSTOMIZATION_FILE"
 
 echo "--- Building manifests from processed kustomization file ---"
-kustomize build .
+kustomize build . --enable-helm
 
 echo "--- Kustomize Renderer Plugin Finished ---"

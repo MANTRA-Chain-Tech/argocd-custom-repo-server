@@ -8,6 +8,6 @@ spec:
     args: [-c, 'echo "Initializing kustomize-env-plugin"']
   discover:
     find:
-      command: ["echo", "hi"]
+      command: ["sh", "-c", "set -e; cd $ARGOCD_APP_SOURCE_PATH && find . -maxdepth 1 -iname 'kustomization.y*ml'"]
   generate:
     command: ["render-kustomize.sh"]
