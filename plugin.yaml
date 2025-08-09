@@ -6,5 +6,8 @@ spec:
   init:
     command: [sh]
     args: [-c, 'echo "Initializing kustomize-env-plugin"']
+  discover:
+    find:
+      command: ["echo", "hi"]
   generate:
     command: ["render-kustomize.sh"]
