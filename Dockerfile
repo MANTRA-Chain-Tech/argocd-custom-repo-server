@@ -9,7 +9,7 @@ RUN apt-get update && \
     apt-get install -y gettext-base && \
     rm -rf /var/lib/apt/lists/*
 
-COPY ConfigManagementPlugin.yaml /home/argocd/cmp-server/config/
+COPY plugin.yaml /home/argocd/cmp-server/config/plugin.yaml
 COPY render-kustomize.sh /usr/local/bin/render-kustomize.sh
 RUN chmod +x /usr/local/bin/render-kustomize.sh
 
