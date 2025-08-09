@@ -9,7 +9,10 @@ RUN apt-get update && \
     apt-get install -y gettext-base && \
     rm -rf /var/lib/apt/lists/*
 
+COPY ConfigManagementPlugin.yaml /home/argocd/cmp-server/config/
 COPY render-kustomize.sh /usr/local/bin/render-kustomize.sh
 RUN chmod +x /usr/local/bin/render-kustomize.sh
 
 USER $ARGOCD_USER_ID
+
+ENTRYPOINT [ "/var/run/argocd/argocd-cmp-server" ]
