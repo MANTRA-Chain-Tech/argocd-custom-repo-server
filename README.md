@@ -67,38 +67,70 @@ docker push "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
 
 ### 2. Configure Argo CD
 
-A. Patch the `argocd-repo-server`
-Update your `argocd-repo-server` deployment to use the custom image you just pushed.
+Deploy the custom image as a **sidecar container** on the `argocd-repo-server` Deployment. This is the supported CMP installation method for ArgoCD v2.6+. The deprecated `configManagementPlugins` field in `argocd-cm` is no longer supported.
 
-```bash
-kubectl patch deployment argocd-repo-server -n argocd \
-  --type='json' \
-  -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/image", "value":"'"${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"'"}]'
-```
-
-B. Register the Config Management Plugin
-Edit the `argocd-cm` ConfigMap to register the new plugin.
-
-```bash
-kubectl edit configmap argocd-cm -n argocd
-```
-
-Add the following plugin configuration under the `data` key:
+**A. Create a ConfigMap for the plugin configuration**
 
 ```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kustomize-env-plugin
+  namespace: argocd
 data:
-  configManagementPlugins: |
-    - name: kustomize-renderer
+  plugin.yaml: |
+    apiVersion: argoproj.io/v1alpha1
+    kind: ConfigManagementPlugin
+    metadata:
+      name: kustomize-env-plugin
+    spec:
+      init:
+        command: [sh]
+        args: [-c, "kustomize version && envsubst --version"]
+      discover:
+        find:
+          command: ["sh", "-c", "find . -maxdepth 1 -iname 'kustomization.y*ml' | head -n 1"]
       generate:
-        # This command points to the script inside our custom image
         command: ["render-kustomize.sh"]
 ```
 
-After saving, restart the `argocd-repo-server` to apply the changes.
+Apply it:
 
 ```bash
-kubectl rollout restart deployment argocd-repo-server -n argocd
+kubectl apply -f kustomize-env-plugin-configmap.yaml
 ```
+
+**B. Patch `argocd-repo-server` to add the sidecar**
+
+Add this sidecar container entry to the `argocd-repo-server` Deployment under `spec.template.spec.containers`:
+
+```yaml
+- name: kustomize-env-plugin
+  image: <your-registry>/argocd-custom-repo-server:<tag>
+  command: [/var/run/argocd/argocd-cmp-server]
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+  volumeMounts:
+    - name: var-files
+      mountPath: /var/run/argocd
+    - name: plugins
+      mountPath: /home/argocd/cmp-server/plugins
+    - name: kustomize-env-plugin-config
+      mountPath: /home/argocd/cmp-server/config
+```
+
+Add this volume entry under `spec.template.spec.volumes`:
+
+```yaml
+- name: kustomize-env-plugin-config
+  configMap:
+    name: kustomize-env-plugin
+```
+
+The `var-files` and `plugins` volumes already exist on the default `argocd-repo-server` Deployment.
+
+For the complete sidecar CMP reference, see the [official ArgoCD documentation](https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/#installing-a-cmp).
 
 ### 3. Use the Plugin in an ApplicationSet
 
@@ -141,22 +173,63 @@ spec:
 This script is the core of the plugin. It's copied into `/usr/local/bin/` inside the Docker image.
 
 ```bash
-#!/bin/sh
-# render-kustomize.sh
+#!/bin/bash
 
-# Exit immediately if a command fails.
-set -e
+# Copyright (C) 2025 MANTRA Chain Tech
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-echo "--- Running Kustomize Renderer Plugin ---"
-echo "Received Cluster Name: $ARGOCD_ENV_CLUSTER_NAME"
+set -euo pipefail
 
-# Use envsubst to process the kustomization file.
-# Note: Argo CD prefixes variables with ARGOCD_ENV_
-envsubst < kustomization.yaml > kustomization.tmp.yaml
+# Redirect all echo statements to stderr for logging purposes.
+echo "--- Running Kustomize Renderer Plugin ---" >&2
 
-echo "--- Building manifests from temporary kustomization file ---"
-# Use the processed file for the kustomize build.
-kustomize build . -f kustomization.tmp.yaml
+VARS_TO_SUBSTITUTE=$(env | grep '^ARGOCD_ENV_' | sed -e 's/=.*//' -e 's/^/\$/g' | tr '\n' ' ')
+
+if [ -n "$VARS_TO_SUBSTITUTE" ]; then
+    echo "Found variables to substitute: ${VARS_TO_SUBSTITUTE}" >&2
+else
+    echo "No ARGOCD_ENV_ variables found to substitute." >&2
+fi
+
+# Create a staging directory; trap ensures it is removed on any exit (success or failure).
+STAGE_DIR=$(mktemp -d)
+trap 'rm -rf "$STAGE_DIR"' EXIT
+
+echo "--- Staging all YAML files for environment substitution ---" >&2
+
+# Process substitution avoids the `find | while` pipe, which would swallow errors from set -e.
+# IFS= read -r handles filenames with spaces correctly.
+while IFS= read -r file; do
+    rel="${file#./}"
+    stage_file="$STAGE_DIR/$rel"
+    mkdir -p "$(dirname "$stage_file")"
+    envsubst "${VARS_TO_SUBSTITUTE}" < "$file" > "$stage_file"
+    echo "Staged: $rel" >&2
+done < <(find . -type f \( -name "*.yaml" -o -name "*.yml" \))
+
+# Copy substituted files back only after ALL files have been successfully staged.
+# This ensures either all substitutions apply or none do (rollback semantics).
+echo "--- Copying substituted files back ---" >&2
+while IFS= read -r file; do
+    rel="${file#./}"
+    cp "$STAGE_DIR/$rel" "$file"
+done < <(find . -type f \( -name "*.yaml" -o -name "*.yml" \))
+
+echo "--- Building manifests from processed files ---" >&2
+kustomize build . --enable-helm
+echo "--- Kustomize Renderer Plugin Finished ---" >&2
 ```
 
 Example `kustomization.yaml` with a placeholder:
@@ -173,6 +246,29 @@ helmCharts:
   # This placeholder will be replaced by the script
   valuesFile: "values-${ARGOCD_ENV_CLUSTER_NAME}.yaml"
 ```
+
+## 🔧 Troubleshooting
+
+**Variables are not being substituted**
+
+ArgoCD automatically prefixes all plugin env vars with `ARGOCD_ENV_`. If your ApplicationSet passes `CLUSTER_NAME`, the script receives `ARGOCD_ENV_CLUSTER_NAME`. Reference it in your YAML files as `${ARGOCD_ENV_CLUSTER_NAME}`.
+
+**Plugin is not discovered for my application**
+
+The plugin activates only when exactly one `kustomization.yaml` or `kustomization.yml` exists in the application's configured source path (root of the path, not subdirectories). Verify the `source.path` in your Application or ApplicationSet points to the directory containing the kustomization file.
+
+**How to read plugin logs**
+
+```bash
+kubectl logs -n argocd \
+  -l app.kubernetes.io/name=argocd-repo-server \
+  -c kustomize-env-plugin \
+  --tail=50
+```
+
+**`kustomize build` fails with Helm-related errors**
+
+The script runs `kustomize build . --enable-helm`. Ensure Helm is available in the sidecar container. The base ArgoCD image bundles Helm — verify your image is built `FROM quay.io/argoproj/argocd:*` and that the version supports the Helm charts you are using.
 
 ## 📄 License
 
