@@ -20,7 +20,7 @@ set -euo pipefail
 # Redirect all echo statements to stderr for logging purposes.
 echo "--- Running Kustomize Renderer Plugin ---" >&2
 
-VARS_TO_SUBSTITUTE=$(env | grep '^ARGOCD_ENV_' | sed -e 's/=.*//' -e 's/^/\$/g' | tr '\n' ' ')
+VARS_TO_SUBSTITUTE=$(env | grep '^ARGOCD_ENV_' | sed -e 's/=.*//' -e 's/^/\$/g' | tr '\n' ' ') || true
 
 if [ -n "$VARS_TO_SUBSTITUTE" ]; then
     echo "Found variables to substitute: ${VARS_TO_SUBSTITUTE}" >&2

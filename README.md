@@ -89,7 +89,17 @@ data:
         args: [-c, "kustomize version && envsubst --version"]
       discover:
         find:
-          command: ["sh", "-c", "find . -maxdepth 1 -iname 'kustomization.y*ml' | head -n 1"]
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              count=$(find . -maxdepth 1 -iname 'kustomization.y*ml' | wc -l | tr -d ' ')
+              if [ "$count" -ne 1 ]; then
+                echo "kustomize-env-plugin: expected exactly 1 kustomization file, found ${count}" >&2
+                exit 1
+              fi
+              find . -maxdepth 1 -iname 'kustomization.y*ml'
       generate:
         command: ["render-kustomize.sh"]
 ```
@@ -134,7 +144,7 @@ For the complete sidecar CMP reference, see the [official ArgoCD documentation](
 
 ### 3. Use the Plugin in an ApplicationSet
 
-Now you can use the `kustomize-renderer` plugin in any `Application` or `ApplicationSet` template.
+Now you can use the `kustomize-env-plugin` plugin in any `Application` or `ApplicationSet` template.
 
 Example `ApplicationSet`:
 
@@ -161,7 +171,7 @@ spec:
         targetRevision: main
         path: 'path/to/kustomize/app'
         plugin:
-          name: kustomize-renderer
+          name: kustomize-env-plugin
           env:
             # Pass the generated clusterName to the plugin
             - name: CLUSTER_NAME
