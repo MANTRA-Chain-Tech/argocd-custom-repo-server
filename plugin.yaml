@@ -20,9 +20,25 @@ metadata:
 spec:
   init:
     command: [sh]
-    args: [-c, 'echo "Initializing kustomize-env-plugin"']
+    args:
+      - -c
+      - |
+        echo "--- kustomize-env-plugin init ---"
+        kustomize version
+        envsubst --version
+        echo "--- init complete ---"
   discover:
     find:
-      command: ["sh", "-c", "set -e; find . -maxdepth 1 -iname 'kustomization.y*ml' | head -n 1"]
+      command:
+        - sh
+        - -c
+        - |
+          set -e
+          count=$(find . -maxdepth 1 -iname 'kustomization.y*ml' | wc -l | tr -d ' ')
+          if [ "$count" -ne 1 ]; then
+            echo "kustomize-env-plugin: expected exactly 1 kustomization file, found ${count}" >&2
+            exit 1
+          fi
+          find . -maxdepth 1 -iname 'kustomization.y*ml'
   generate:
     command: ["render-kustomize.sh"]
