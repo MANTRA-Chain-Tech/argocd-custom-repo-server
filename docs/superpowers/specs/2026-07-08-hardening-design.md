@@ -27,13 +27,13 @@ Files are substituted in-place (write to temp, `mv` back). If substitution succe
 
 ### Proposed Changes
 
-1. **Replace `find | while` with a `for` loop** over a captured file list, so `set -e` applies to each `envsubst` and `mv` call:
+1. **Replace `find | while` with a `while IFS= read -r` loop** over process substitution, so `set -e` applies to each `envsubst` and `mv` call and file paths with spaces are handled correctly:
    ```sh
-   files=$(find . -type f \( -name "*.yaml" -o -name "*.yml" \))
-   for file in $files; do
+   while IFS= read -r file; do
      ...
-   done
+   done < <(find . -type f \( -name "*.yaml" -o -name "*.yml" \))
    ```
+   Note: `< <(...)` process substitution requires bash; the script shebang is `#!/bin/sh`. Either switch the shebang to `#!/bin/bash` or capture `find` output to a temp file for strict POSIX compliance.
 
 2. **Add a cleanup trap** using a temp directory:
    ```sh
@@ -123,7 +123,7 @@ ArgoCD v2.6+ supports documenting expected plugin parameters via `spec.parameter
          - -c
          - |
            set -e
-           count=$(find . -maxdepth 1 -iname 'kustomization.y*ml' | wc -l)
+           count=$(find . -maxdepth 1 -iname 'kustomization.y*ml' | wc -l | tr -d ' ')
            if [ "$count" -ne 1 ]; then exit 1; fi
            find . -maxdepth 1 -iname 'kustomization.y*ml'
    ```
